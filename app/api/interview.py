@@ -1,108 +1,165 @@
+# app/api/interview.py
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.core.database import get_connection
+import traceback
+import secrets
+import string
 
-# 🔧 Make sure the filename is exactly services/gmail_services.py
-#     and the class inside is GmailService
+# Import Gmail service
 try:
-    from app.services.gmail_services import GmailService  # correct module name
+    from app.services.gmail_services import GmailService
+    gmail_service_available = True
 except Exception as e:
-    GmailService = None  # allow app to start; we’ll error clearly later
-    _gmail_import_error = e
+    GmailService = None
+    gmail_service_available = False
+    gmail_import_error = str(e)
 
-# ✅ IMPORTANT: no '/api' here; global '/api/v1' is added in main.py
 router = APIRouter(prefix="/interview", tags=["Interview"])
 
 
-class InterviewRequest(BaseModel):
-    question: str
+# ---------------------------------------------------------
+# Generate ONLY the Jitsi room name (branding handled in FE)
+# ---------------------------------------------------------
+def generate_jitsi_link() -> str:
+    """
+    Return only the Jitsi room name.
+    Example: AIInterviewRoom-Ab12Xy
+    """
+    random_id = ''.join(
+        secrets.choice(string.ascii_letters + string.digits)
+        for _ in range(6)
+    )
+    return f"AIInterviewRoom-{random_id}"
 
 
-@router.post("/ask")
-async def ask_question(req: InterviewRequest):
-    return {"answer": f"You asked: {req.question}"}
+# ---------------------------------------------------------
+# Request body for scheduling interview
+# ---------------------------------------------------------
+class InterviewSchedule(BaseModel):
+    interview_date: str  # YYYY-MM-DD
+    interview_time: str  # HH:MM (24-hour)
 
 
-class InterviewDetails(BaseModel):
-    interview_date: str
-    interview_time: str
-    interview_link: str
+# ---------------------------------------------------------
+# Schedule Interview API
+# ---------------------------------------------------------
+@router.post("/schedule/{resume_id}")
+async def schedule_interview(resume_id: str, data: InterviewSchedule):
 
+    # Gmail check
+    if not gmail_service_available:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Gmail service not configured: {gmail_import_error}"
+        )
 
-@router.post("/send-interview-mail/{resume_id}")
-async def send_interview_mail(resume_id: str, data: InterviewDetails):
-    # --- fetch candidate
+    # Fetch candidate
     conn = get_connection()
     if conn is None:
-        raise HTTPException(500, "Database connection failed")
+        raise HTTPException(status_code=500, detail="Database connection failed")
 
     try:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT full_name, email_id
             FROM parsed_resumes
             WHERE resume_id = %s
-            """,
-            (resume_id,),
-        )
+        """, (resume_id,))
         row = cursor.fetchone()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
-        try:
-            cursor.close()
-        except Exception:
-            pass
-        try:
-            conn.close()
-        except Exception:
-            pass
+        try: cursor.close()
+        except: pass
+        try: conn.close()
+        except: pass
 
     if not row:
-        raise HTTPException(404, "Candidate not found")
+        raise HTTPException(status_code=404, detail="Candidate not found")
 
-    candidate_name = row["full_name"] or "Candidate"
-    candidate_email = row["email_id"]
+    candidate_name = row.get("full_name") or "Candidate"
+    candidate_email = row.get("email_id")
+
     if not candidate_email:
-        raise HTTPException(400, "Candidate email not available")
+        raise HTTPException(status_code=400, detail="Candidate email missing")
 
-    # --- build email
-    body = f"""
-Dear {candidate_name},
+    # -----------------------------------------------------
+    # Generate ROOM NAME (not URL)
+    # -----------------------------------------------------
+    room_name = generate_jitsi_link()
 
-You have been shortlisted for an interview at S2Integrators.
+    # -----------------------------------------------------
+    # Build FRONTEND LINK
+    # -----------------------------------------------------
+    frontend_url = "http://localhost:5173"   # change after deployment
+    meeting_link = f"{frontend_url}/interview-room/{room_name}"
 
-Date: {data.interview_date}
-Time: {data.interview_time}
+    # -----------------------------------------------------
+    # Email Body
+    # -----------------------------------------------------
+    email_body = f"""Dear {candidate_name},
 
-Join using this link:
-{data.interview_link}
+Congratulations! You have been shortlisted for an interview at S2Integrators.
 
-Regards,
+Interview Details:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📅 Date: {data.interview_date}
+🕐 Time: {data.interview_time}
+🔗 Meeting Link: {meeting_link}
+
+Please join the meeting at the scheduled time using the link above.
+
+Instructions:
+• Click the meeting link 5 minutes before the scheduled time
+• No account or app installation required
+• Allow camera and microphone access when prompted
+• Ensure you have a stable internet connection
+
+If you have any questions or need to reschedule, please contact our HR team.
+
+Best regards,
 S2Integrators HR Team
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Technical Support: Jitsi Meet works on all browsers. If you face any issues,
+try using Chrome or Firefox.
 """.strip()
 
-    # --- send email
-    if GmailService is None:
-        # Give a clear actionable error if the module/class wasn’t importable
-        raise HTTPException(
-            500,
-            f"Gmail service not available: {_gmail_import_error}"
-            if '_gmail_import_error' in globals()
-            else "Unknown Gmail import error",
-        )
-
+    # -----------------------------------------------------
+    # Send email
+    # -----------------------------------------------------
     try:
         gmail = GmailService()
-        gmail.send_email(
+        result = gmail.send_email(
             to_email=candidate_email,
             subject="Interview Scheduled – S2Integrators",
-            message_text=body,
+            message_text=email_body
         )
-    except Exception as e:
-        # Don’t crash the whole app; return a helpful error
-        raise HTTPException(500, f"Error sending email: {str(e)}")
 
+        return {
+            "success": True,
+            "message": "Interview email sent successfully",
+            "email_sent_to": candidate_email,
+            "candidate_name": candidate_name,
+            "interview_date": data.interview_date,
+            "interview_time": data.interview_time,
+            "meeting_link": meeting_link,
+            "message_id": result.get("message_id")
+        }
+
+    except Exception as e:
+        print("Email error:", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
+
+
+# ---------------------------------------------------------
+# Health Endpoint
+# ---------------------------------------------------------
+@router.get("/health")
+async def interview_health_check():
     return {
-        "message": "Interview email sent successfully",
-        "email_sent_to": candidate_email,
+        "status": "healthy",
+        "gmail_service_available": gmail_service_available,
+        "meeting_service": "Jitsi Meet (iframe based)",
     }

@@ -8,11 +8,17 @@ import io
 
 api_key = None
 google_vision_api_key = None
-CONFIG_PATH = "C:/Users/moham/OneDrive/Desktop/Ai resume/Backend M/New folder/AI_Backend/AI_Screen/Parser/config.yaml"
 
-with open(CONFIG_PATH) as file:
+# ✔ Automatically detect the folder where this file is located
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# ✔ Load config.yaml dynamically from the Parser folder
+CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")
+
+# ✔ Load config file safely
+with open(CONFIG_PATH, "r") as file:
     data = yaml.load(file, Loader=yaml.FullLoader)
-    api_key = data.get("API_KEY") or data.get("OPENAI_API_KEY")  # Support both key names
+    api_key = data.get("API_KEY") or data.get("OPENAI_API_KEY")
     google_vision_api_key = data.get("GOOGLE_VISION_API_KEY")
 
 

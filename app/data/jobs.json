@@ -161,5 +161,19 @@
     "min_years_experience": 0.0,
     "required_education": 3,
     "description": ""
+  },
+  {
+    "id": "4f0fc235-4a99-4643-943a-6d84dbf73a09",
+    "title": "java devloper",
+    "must_have_skills": [
+      "react",
+      "node.js"
+    ],
+    "nice_to_have_skills": [
+      "docker"
+    ],
+    "min_years_experience": 2.0,
+    "required_education": 3,
+    "description": "im fit to this job"
   }
 ]
