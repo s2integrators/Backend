@@ -1,17 +1,30 @@
-# ============================
-# backend/hrmatching/database.py
-# ============================
-from __future__ import annotations
-from sqlmodel import SQLModel, create_engine, Session
-from pathlib import Path
+# app/hrmatching/database.py
+from mysql.connector import connect, Error
+from contextlib import contextmanager
 
-DB_PATH = Path(__file__).resolve().parent.parent / "hrmatching.db"
-engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
+def get_connection():
+    try:
+        conn = connect(
+            host="localhost",
+            user="root",
+            password="Abid@pc19",   # your password
+            database="pythontesting"       # your DB
+        )
+        return conn
+    except Error as e:
+        print(f"❌ HR Matching DB Error: {e}")
+        return None
 
-def init_db() -> None:
-    from . import models  # ensure models are registered
-    SQLModel.metadata.create_all(engine)
-
-def get_session() -> Session:
-    with Session(engine) as session:
-        yield session
+@contextmanager
+def get_session():
+    conn = get_connection()
+    if conn is None:
+        yield None
+        return
+    try:
+        cursor = conn.cursor(dictionary=True)
+        yield cursor
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()

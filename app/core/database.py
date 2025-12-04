@@ -1,3 +1,4 @@
+# app/core/database.py
 import mysql.connector
 from mysql.connector import Error
 print("Connecting to MySQL Database");
@@ -6,8 +7,8 @@ def get_connection():
         connection = mysql.connector.connect(
             host="localhost",          # Your MySQL host
             user="root",               # Your MySQL username
-            password="Ayubsheik@1506",  # Your MySQL password
-            database="testing1"   # Database name
+            password="Abid@pc19",  # Your MySQL password
+            database="pythontesting"   # Database name
         )
         if connection.is_connected():
             print("✅ Connected to MySQL Database")
